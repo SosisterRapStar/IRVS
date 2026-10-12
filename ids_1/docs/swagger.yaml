@@ -1,0 +1,204 @@
+basePath: /
+definitions:
+  main.CreateTaskRequest:
+    properties:
+      title:
+        example: сдать домашку
+        type: string
+    type: object
+  main.ErrorResponse:
+    properties:
+      error:
+        example: task not found
+        type: string
+    type: object
+  main.HealthResponse:
+    properties:
+      status:
+        example: ok
+        type: string
+    type: object
+  main.PatchTaskRequest:
+    properties:
+      done:
+        example: true
+        type: boolean
+    type: object
+  main.Task:
+    properties:
+      created_at:
+        type: string
+      done:
+        type: boolean
+      id:
+        type: integer
+      title:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: REST API
+  title: Tasks API
+  version: "1.0"
+paths:
+  /health:
+    get:
+      description: Проверяет процесс и соединение с БД
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.HealthResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+      summary: Проверка живости
+      tags:
+      - health
+  /tasks:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/main.Task'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+      summary: Список задач
+      tags:
+      - tasks
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Новая задача
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.CreateTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/main.Task'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+      summary: Создать задачу
+      tags:
+      - tasks
+  /tasks/{id}:
+    delete:
+      parameters:
+      - description: ID задачи
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+      summary: Удалить задачу
+      tags:
+      - tasks
+    get:
+      parameters:
+      - description: ID задачи
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.Task'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+      summary: Получить задачу
+      tags:
+      - tasks
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: ID задачи
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      - description: Новое состояние
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.PatchTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.Task'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+      summary: Отметить задачу выполненной или невыполненной
+      tags:
+      - tasks
+swagger: "2.0"

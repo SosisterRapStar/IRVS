@@ -1,0 +1,11 @@
+.git
+.gitignore
+.env
+*.md
+Makefile
+docker-compose.yml
+migrations
+scripts
+bin
+migrate.conf
+images

@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: ids1-db
+    environment:
+      POSTGRES_USER: ${DB_USER:-app}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-app}
+      POSTGRES_DB: ${DB_NAME:-app}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-app} -d ${DB_NAME:-app}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: ids1-app
+    env_file:
+      - ${ENV_FILE:-.env}
+    ports:
+      - "${APP_EXPOSED_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
