@@ -2,37 +2,52 @@ package main
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"os"
+	"strings"
 )
 
-// Config собирается только из переменных окружения — так приложение
-// одинаково запускается и локально, и в контейнере.
 type Config struct {
 	HTTPAddr    string
 	DatabaseURL string
 }
 
-func LoadConfig() Config {
+func LoadConfig() (Config, error) {
+	connectionURL, err := databaseURL()
+	if err != nil {
+		return Config{}, err
+	}
 	return Config{
 		HTTPAddr:    ":" + env("APP_PORT", "8080"),
-		DatabaseURL: databaseURL(),
-	}
+		DatabaseURL: connectionURL,
+	}, nil
 }
 
-// databaseURL: либо готовый DATABASE_URL, либо собираем его из частей.
-func databaseURL() string {
-	if url := os.Getenv("DATABASE_URL"); url != "" {
-		return url
+func databaseURL() (string, error) {
+	if connectionURL := os.Getenv("DATABASE_URL"); connectionURL != "" {
+		return connectionURL, nil
 	}
-	return fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
-		env("DB_USER", "app"),
-		env("DB_PASSWORD", "app"),
-		env("DB_HOST", "localhost"),
-		env("DB_PORT", "5432"),
-		env("DB_NAME", "app"),
-		env("DB_SSLMODE", "disable"),
-	)
+	password := os.Getenv("DB_PASSWORD")
+	if path := os.Getenv("DB_PASSWORD_FILE"); path != "" {
+		secret, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read DB_PASSWORD_FILE: %w", err)
+		}
+		// The PostgreSQL image strips trailing newlines when it reads the secret.
+		password = strings.TrimRight(string(secret), "\n")
+	}
+	name := env("DB_NAME", "app")
+	host := strings.Trim(env("DB_HOST", "localhost"), "[]")
+	connectionURL := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(os.Getenv("DB_USER"), password),
+		Host:     net.JoinHostPort(host, env("DB_PORT", "5432")),
+		Path:     "/" + name,
+		RawPath:  "/" + url.PathEscape(name),
+		RawQuery: url.Values{"sslmode": {env("DB_SSLMODE", "disable")}}.Encode(),
+	}
+	return connectionURL.String(), nil
 }
 
 func env(key, fallback string) string {

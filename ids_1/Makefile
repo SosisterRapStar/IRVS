@@ -29,7 +29,7 @@ ps:
 	$(COMPOSE) ps
 
 psql:            ## зайти в базу внутри контейнера
-	$(COMPOSE) exec db psql -U app -d app
+	$(COMPOSE) exec db sh -ec 'exec psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
 
 bin/migrate:
 	GOBIN=$(CURDIR)/bin go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@$(MIGRATE_VERSION)
