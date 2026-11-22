@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:17-alpine
+          image: postgres:17.11-alpine3.24
           ports:
             - name: postgres
               containerPort: 5432

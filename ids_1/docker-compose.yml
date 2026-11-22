@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:17-alpine
+    image: postgres:17.11-alpine3.24
     container_name: ids1-db
     environment:
       POSTGRES_USER: ${DB_USER:?Set DB_USER in .env}
