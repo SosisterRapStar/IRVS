@@ -23,5 +23,9 @@ printf '%s' "$DB_USER" > "$secret_dir/POSTGRES_USER"
 printf '%s' "$DB_NAME" > "$secret_dir/POSTGRES_DB"
 printf '%s' "$DB_PASSWORD" > "$secret_dir/POSTGRES_PASSWORD"
 
-kubectl --kubeconfig="$1" --namespace=sosister-rap-star \
-    create secret generic postgres-auth --from-file="$secret_dir"
+set -- "--kubeconfig=$1" --namespace=sosister-rap-star
+secret_manifest=$(kubectl "$@" create secret generic postgres-auth \
+    --from-file="$secret_dir" --dry-run=client -o yaml)
+
+printf '%s\n' "$secret_manifest" |
+    kubectl "$@" apply --server-side --field-manager=k8s-secrets --force-conflicts -f -

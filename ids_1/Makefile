@@ -63,7 +63,7 @@ test-api:        ## дымовой прогон всех ручек
 
 k8s-secrets: export IRVS_SECRET_ENV_FILE := $(ENV_FILE)
 k8s-secrets: export IRVS_SECRET_CFG := $(CFG)
-k8s-secrets:     ## создать Secret PostgreSQL в учебном namespace
+k8s-secrets:     ## создать или обновить Secret PostgreSQL в учебном namespace
 	@case "$$IRVS_SECRET_ENV_FILE" in /*) ;; *) IRVS_SECRET_ENV_FILE="./$$IRVS_SECRET_ENV_FILE";; esac; \
 	set -- "$$IRVS_SECRET_CFG"; \
 	set -a && . "$$IRVS_SECRET_ENV_FILE" && set +a && ./scripts/k8s-secrets.sh "$$1"
