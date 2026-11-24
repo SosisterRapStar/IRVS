@@ -23,7 +23,7 @@ printf '%s' "$DB_USER" > "$secret_dir/POSTGRES_USER"
 printf '%s' "$DB_NAME" > "$secret_dir/POSTGRES_DB"
 printf '%s' "$DB_PASSWORD" > "$secret_dir/POSTGRES_PASSWORD"
 
-set -- "--kubeconfig=$1" --namespace=sosister-rap-star
+set -- "--kubeconfig=$1" --namespace=sositer-rap-star
 secret_manifest=$(kubectl "$@" create secret generic postgres-auth \
     --from-file="$secret_dir" --dry-run=client -o yaml)
 

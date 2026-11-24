@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: tasks-api
-  namespace: sosister-rap-star
+  namespace: sositer-rap-star
 spec:
   selector:
     app.kubernetes.io/name: tasks-api
@@ -15,7 +15,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: tasks-api
-  namespace: sosister-rap-star
+  namespace: sositer-rap-star
 spec:
   replicas: 1
   selector:

@@ -15,37 +15,54 @@ REST API для списка задач с PostgreSQL.
 Из каталога `ids_1` примените обычные YAML-манифесты.
 
 ```sh
-kubectl apply -f k8s/
+kubectl -n sositer-rap-star apply -f k8s/
 ```
 
 ### Проверка сохранности данных
 
-В командах проверки используйте namespace развёртывания. В отдельном терминале откройте порт API через `kubectl port-forward svc/tasks-api 8080:8080`. Swagger UI будет доступен по адресу `http://127.0.0.1:8080/swagger/index.html`.
+В отдельном терминале откройте порт API и оставьте команду запущенной на время проверки.
+
+```sh
+kubectl -n sositer-rap-star port-forward svc/tasks-api 8080:8080
+```
 
 Создайте запись, запомните UID Pod и PVC, затем пересоздайте Pod базы. Для извлечения `id` из JSON нужен `python3`.
 
 ```sh
+sh -eu <<'SH'
+k() { kubectl -n sositer-rap-star "$@"; }
 api=http://127.0.0.1:8080
 created=$(curl -fsS -H 'Content-Type: application/json' \
   -d '{"title":"IRVS HW2 persistence check"}' "$api/tasks")
 printf '%s\n' "$created"
-task_id=$(printf '%s\n' "$created" | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])')
+task_id=$(printf '%s\n' "$created" | python3 -c '
+import json, sys
+task_id = json.load(sys.stdin)["id"]
+if type(task_id) is not int or task_id <= 0:
+    sys.exit("API вернул некорректный id задачи")
+print(task_id)
+')
 
-old_pod_uid=$(kubectl get pod postgres-0 -o jsonpath='{.metadata.uid}')
-old_pvc_uid=$(kubectl get pvc data-postgres-0 -o jsonpath='{.metadata.uid}')
-kubectl delete pod postgres-0
-kubectl wait --for=create pod/postgres-0 --timeout=180s
-kubectl wait --for=condition=Ready pod/postgres-0 --timeout=180s
-kubectl wait --for=condition=Available deployment/tasks-api --timeout=180s
+old_pod_uid=$(k get pod postgres-0 -o jsonpath='{.metadata.uid}')
+old_pvc_uid=$(k get pvc data-postgres-0 -o jsonpath='{.metadata.uid}')
+test -n "$old_pod_uid"
+test -n "$old_pvc_uid"
+k delete pod postgres-0
+k wait --for=create pod/postgres-0 --timeout=180s
+k wait --for=condition=Ready pod/postgres-0 --timeout=180s
+k wait --for=condition=Available deployment/tasks-api --timeout=180s
 
-new_pod_uid=$(kubectl get pod postgres-0 -o jsonpath='{.metadata.uid}')
-new_pvc_uid=$(kubectl get pvc data-postgres-0 -o jsonpath='{.metadata.uid}')
+new_pod_uid=$(k get pod postgres-0 -o jsonpath='{.metadata.uid}')
+new_pvc_uid=$(k get pvc data-postgres-0 -o jsonpath='{.metadata.uid}')
 stored=$(curl -fsS --retry 10 --retry-delay 2 "$api/tasks/$task_id")
 printf 'Pod: %s → %s\nPVC: %s → %s\n%s\n' \
   "$old_pod_uid" "$new_pod_uid" "$old_pvc_uid" "$new_pvc_uid" "$stored"
-test "$old_pod_uid" != "$new_pod_uid" &&
-  test "$old_pvc_uid" = "$new_pvc_uid" &&
-  test "$created" = "$stored"
+test -n "$new_pod_uid"
+test "$old_pod_uid" != "$new_pod_uid"
+test "$old_pvc_uid" = "$new_pvc_uid"
+test "$created" = "$stored"
+printf 'Запись %s сохранилась после пересоздания Pod PostgreSQL.\n' "$task_id"
+SH
 ```
 
 UID Pod меняется, UID PVC остаётся прежним, а `GET /tasks/{id}` возвращает ту же запись, что и `POST /tasks`.
