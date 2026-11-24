@@ -1,0 +1,30 @@
+name: Build Tasks API image
+
+on:
+  push:
+    branches: [kuber]
+    paths:
+      - .github/workflows/tasks-image.yml
+      - ids_1/.dockerignore
+      - ids_1/Dockerfile
+      - ids_1/go.*
+      - ids_1/*.go
+      - ids_1/docs/**
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and publish to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ghcr.io/sosisterrapstar/irvs-tasks:hw2
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker build --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" -t "$IMAGE" ids_1
+          docker push "$IMAGE"

@@ -32,6 +32,12 @@ spec:
           ports:
             - name: postgres
               containerPort: 5432
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
           env:
             - name: POSTGRES_USER
               valueFrom:
@@ -71,6 +77,7 @@ spec:
     - metadata:
         name: data
       spec:
+        storageClassName: local-path
         accessModes:
           - ReadWriteOnce
         resources:

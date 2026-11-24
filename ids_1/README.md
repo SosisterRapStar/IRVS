@@ -25,40 +25,68 @@ Compose передаёт `DB_PASSWORD` из `.env` в контейнеры че�
 
 Перед возвратом к запуску в докере верните `DB_HOST=db`.
 
-## PostgreSQL в Kubernetes
+## ДЗ №2. Развёртывание в Kubernetes
 
-Манифест [k8s/postgres.yaml](k8s/postgres.yaml) создаёт StatefulSet с одной репликой и headless Service `postgres`. Для Pod `postgres-0` Kubernetes выделяет PVC `data-postgres-0` через StorageClass кластера по умолчанию. Подготовьте `.env` с заполненными `DB_USER`, `DB_PASSWORD` и `DB_NAME`.
+- [k8s/app.yaml](k8s/app.yaml) описывает Deployment `tasks-api` и внутренний Service `tasks-api` на порту `8080`. Приложение подключается к `postgres:5432` по DNS-имени сервиса базы. HTTP-проверка `/health` помечает API готовым, когда доступна БД.
+- [k8s/postgres.yaml](k8s/postgres.yaml) описывает StatefulSet и headless Service `postgres`. Из `volumeClaimTemplates` StatefulSet создаёт PVC `data-postgres-0` на 1 ГиБ в классе хранения `local-path`. После замены Pod PostgreSQL снова монтирует этот том.
+- [kustomization.yaml](kustomization.yaml) собирает ресурсы в namespace `sosister-rap-star` и создаёт ConfigMap из [миграции ДЗ №1](migrations/000001_init.up.sql). Init-контейнер ждёт PostgreSQL и применяет миграцию транзакционно перед запуском API.
+- Образ API `ghcr.io/sosisterrapstar/irvs-tasks:hw2` собирается из [Dockerfile ДЗ №1](Dockerfile) через [GitHub Actions](../.github/workflows/tasks-image.yml). PostgreSQL и API получают один пароль из Secret `postgres-auth`.
+
+### Запуск
+
+Выполните команды из корня репозитория. Secret нужно создать один раз. Для уже инициализированного тома используйте действующие учётные данные PostgreSQL.
 
 ```sh
-kubectl create namespace irvs
+cfg="$HOME/Downloads/Telegram Desktop/students.yaml"
+k() { kubectl --kubeconfig="$cfg" -n sosister-rap-star "$@"; }
+
 (
-  . ./.env
-  printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=%s\n' \
-    "$DB_USER" "$DB_PASSWORD" "$DB_NAME"
-) | kubectl -n irvs create secret generic postgres-auth --from-env-file=/dev/stdin
-kubectl -n irvs apply -f k8s/postgres.yaml
-kubectl -n irvs rollout status statefulset/postgres --timeout=120s
+  db_password=$(openssl rand -hex 24) || exit 1
+  printf 'POSTGRES_USER=irvs_k8s\nPOSTGRES_DB=app\nPOSTGRES_PASSWORD=%s\n' "$db_password"
+) | k create secret generic postgres-auth --from-env-file=/dev/stdin
+
+k apply -k ids_1
+k rollout status statefulset/postgres --timeout=180s
+k rollout status deployment/tasks-api --timeout=180s
+k get pods,svc,pvc
 ```
 
-Чтобы проверить постоянство данных, добавьте запись, пересоздайте Pod и прочитайте её снова.
+### Проверка сохранности данных
+
+Откройте порт API в отдельном терминале. Swagger UI будет доступен по адресу `http://127.0.0.1:8080/swagger/index.html`.
 
 ```sh
-kubectl -n irvs exec -i postgres-0 -- sh -ec \
-  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
-CREATE TABLE IF NOT EXISTS persistence_check (id integer PRIMARY KEY);
-INSERT INTO persistence_check VALUES (1) ON CONFLICT DO NOTHING;
-SQL
-
-old_pod_uid=$(kubectl -n irvs get pod postgres-0 -o jsonpath='{.metadata.uid}')
-kubectl -n irvs delete pod postgres-0
-kubectl -n irvs wait --for=create pod/postgres-0 --timeout=120s
-kubectl -n irvs wait --for=condition=Ready pod/postgres-0 --timeout=120s
-test "$old_pod_uid" != "$(kubectl -n irvs get pod postgres-0 -o jsonpath='{.metadata.uid}')"
-kubectl -n irvs exec postgres-0 -- sh -ec \
-  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT id FROM persistence_check"'
+kubectl --kubeconfig="$HOME/Downloads/Telegram Desktop/students.yaml" \
+  -n sosister-rap-star port-forward svc/tasks-api 8080:8080
 ```
 
-Последняя команда должна вывести `1`.
+В первом терминале создайте задачу через API, запомните UID Pod и PVC, затем удалите Pod базы. Для извлечения `id` из JSON нужен `python3`.
+
+```sh
+api=http://127.0.0.1:8080
+created=$(curl -fsS -H 'Content-Type: application/json' \
+  -d '{"title":"IRVS HW2 persistence check"}' "$api/tasks")
+printf '%s\n' "$created"
+task_id=$(printf '%s\n' "$created" | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])')
+
+old_pod_uid=$(k get pod postgres-0 -o jsonpath='{.metadata.uid}')
+old_pvc_uid=$(k get pvc data-postgres-0 -o jsonpath='{.metadata.uid}')
+k delete pod postgres-0
+k wait --for=create pod/postgres-0 --timeout=180s
+k wait --for=condition=Ready pod/postgres-0 --timeout=180s
+k wait --for=condition=Available deployment/tasks-api --timeout=180s
+
+new_pod_uid=$(k get pod postgres-0 -o jsonpath='{.metadata.uid}')
+new_pvc_uid=$(k get pvc data-postgres-0 -o jsonpath='{.metadata.uid}')
+stored=$(curl -fsS --retry 10 --retry-delay 2 "$api/tasks/$task_id")
+printf 'Pod: %s → %s\nPVC: %s → %s\n%s\n' \
+  "$old_pod_uid" "$new_pod_uid" "$old_pvc_uid" "$new_pvc_uid" "$stored"
+test "$old_pod_uid" != "$new_pod_uid" &&
+  test "$old_pvc_uid" = "$new_pvc_uid" &&
+  test "$created" = "$stored"
+```
+
+UID Pod меняется, UID PVC остаётся прежним, а `GET /tasks/{id}` возвращает ту же запись, что и `POST /tasks`.
 
 # Скриншоты
 
