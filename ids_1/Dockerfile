@@ -12,9 +12,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/app .
 
 FROM alpine:3.22
 
-RUN adduser -D -u 10001 app
+RUN apk add --no-cache postgresql17-client && adduser -D -u 10001 app
 
 COPY --from=builder /out/app /usr/local/bin/app
+COPY migrations/ /migrations/
 
 USER app
 EXPOSE 8080

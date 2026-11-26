@@ -1,4 +1,4 @@
-.PHONY: up down down-v logs rebuild ps psql test-api build run install-migrate migrate-up migrate-down migrate-version migrate-new swagger
+.PHONY: up down down-v logs rebuild ps psql test-api build run install-migrate migrate-up migrate-down migrate-version migrate-new swagger k8s-secrets
 
 MIGRATE_VERSION := v4.19.0
 
@@ -60,3 +60,10 @@ run:             ## запуск приложения на хосте (БД в �
 
 test-api:        ## дымовой прогон всех ручек
 	./scripts/smoke.sh
+
+k8s-secrets: export IRVS_SECRET_ENV_FILE := $(ENV_FILE)
+k8s-secrets: export IRVS_SECRET_CFG := $(CFG)
+k8s-secrets:     ## создать или обновить Secret PostgreSQL в учебном namespace
+	@case "$$IRVS_SECRET_ENV_FILE" in /*) ;; *) IRVS_SECRET_ENV_FILE="./$$IRVS_SECRET_ENV_FILE";; esac; \
+	set -- "$$IRVS_SECRET_CFG"; \
+	set -a && . "$$IRVS_SECRET_ENV_FILE" && set +a && ./scripts/k8s-secrets.sh "$$1"

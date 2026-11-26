@@ -2,4 +2,5 @@
 /app
 /irvs
 /bin/
-/scripts/
+/scripts/*
+!/scripts/k8s-secrets.sh

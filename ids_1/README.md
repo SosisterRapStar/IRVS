@@ -1,77 +1,76 @@
-# Как запускать:
+# Tasks API
 
-## В Docker Compose
+REST API для списка задач с PostgreSQL.
 
-Для `make up` нужны Docker Compose и Go на хосте. Go собирает утилиту для миграций.
+## ДЗ №1. Запуск в Docker Compose
 
-1. Выполните `cp .env.example .env` и заполните `DB_USER` и `DB_PASSWORD` в `.env`.
-2. Запустите `make up`. Команда поднимет PostgreSQL, применит миграции и запустит API.
+Для `make up` нужны Docker Compose и Go. Команда запускает PostgreSQL, применяет миграции и запускает API. При запуске API на хосте используется `make run` с доступной базой, к которой уже применены миграции.
 
-Compose передаёт `DB_PASSWORD` из `.env` в контейнеры через secret `db_password`. PostgreSQL и API читают его из `/run/secrets/db_password`. Для уже инициализированного тома укажите действующие логин и пароль PostgreSQL.
+## ДЗ №2. Развёртывание в Kubernetes
 
-## На хосте
-Приложение запускается прямо на машине через `go run`, в докере остаётся только БД. Нужен установленный Go.
+- [k8s/app.yaml](k8s/app.yaml) описывает Deployment и внутренний Service `tasks-api` на порту `8080`. API подключается к базе по адресу `postgres:5432`.
+- [k8s/postgres.yaml](k8s/postgres.yaml) описывает StatefulSet и headless Service `postgres`. Из `volumeClaimTemplates` StatefulSet создаёт PVC `data-postgres-0` на 1 ГиБ через `local-path`.
+- [Dockerfile](Dockerfile) добавляет SQL-миграции и клиент PostgreSQL в образ API. Init-контейнер ждёт PostgreSQL и применяет миграцию из этого образа перед запуском API.
 
-1. Создайте .env файл так же, как для докера
-2. В .env поменяйте `DB_HOST=db` на `DB_HOST=localhost`
-3. Выставьте `DB_PORT` равным `DB_EXPOSED_PORT` — это порт, на котором БД доступна с хоста
-4. Поднимите БД: `docker compose up -d --wait db`
-5. Накатите миграции: `make migrate-up`
-6. Если приложение уже запущено в докере, остановите его, чтобы освободить порт: `docker compose stop app`
-7. Запустите `make run`
-8. Проверьте: `curl localhost:8080/health`
-
-Хост нужно менять руками: `db` — это имя сервиса внутри сети докера, с хоста оно не резолвится. `make run` берёт переменные из .env как есть и ничего не подменяет, поэтому с `DB_HOST=db` приложение на хосте не подключится к базе.
-
-Перед возвратом к запуску в докере верните `DB_HOST=db`.
-
-## PostgreSQL в Kubernetes
-
-Манифест [k8s/postgres.yaml](k8s/postgres.yaml) создаёт StatefulSet с одной репликой и headless Service `postgres`. Для Pod `postgres-0` Kubernetes выделяет PVC `data-postgres-0` через StorageClass кластера по умолчанию. Подготовьте `.env` с заполненными `DB_USER`, `DB_PASSWORD` и `DB_NAME`.
+Из каталога `ids_1` примените обычные YAML-манифесты.
 
 ```sh
-kubectl create namespace irvs
-(
-  . ./.env
-  printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=%s\n' \
-    "$DB_USER" "$DB_PASSWORD" "$DB_NAME"
-) | kubectl -n irvs create secret generic postgres-auth --from-env-file=/dev/stdin
-kubectl -n irvs apply -f k8s/postgres.yaml
-kubectl -n irvs rollout status statefulset/postgres --timeout=120s
+kubectl -n sositer-rap-star apply -f k8s/
 ```
 
-Чтобы проверить постоянство данных, добавьте запись, пересоздайте Pod и прочитайте её снова.
+### Проверка сохранности данных
+
+В отдельном терминале откройте порт API и оставьте команду запущенной на время проверки.
 
 ```sh
-kubectl -n irvs exec -i postgres-0 -- sh -ec \
-  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
-CREATE TABLE IF NOT EXISTS persistence_check (id integer PRIMARY KEY);
-INSERT INTO persistence_check VALUES (1) ON CONFLICT DO NOTHING;
-SQL
-
-old_pod_uid=$(kubectl -n irvs get pod postgres-0 -o jsonpath='{.metadata.uid}')
-kubectl -n irvs delete pod postgres-0
-kubectl -n irvs wait --for=create pod/postgres-0 --timeout=120s
-kubectl -n irvs wait --for=condition=Ready pod/postgres-0 --timeout=120s
-test "$old_pod_uid" != "$(kubectl -n irvs get pod postgres-0 -o jsonpath='{.metadata.uid}')"
-kubectl -n irvs exec postgres-0 -- sh -ec \
-  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT id FROM persistence_check"'
+kubectl -n sositer-rap-star port-forward svc/tasks-api 8080:8080
 ```
 
-Последняя команда должна вывести `1`.
+Создайте запись, запомните UID Pod и PVC, затем пересоздайте Pod базы. Для извлечения `id` из JSON нужен `python3`.
 
-# Скриншоты
+```sh
+sh -eu <<'SH'
+k() { kubectl -n sositer-rap-star "$@"; }
+api=http://127.0.0.1:8080
+created=$(curl -fsS -H 'Content-Type: application/json' \
+  -d '{"title":"IRVS HW2 persistence check"}' "$api/tasks")
+printf '%s\n' "$created"
+task_id=$(printf '%s\n' "$created" | python3 -c '
+import json, sys
+task_id = json.load(sys.stdin)["id"]
+if type(task_id) is not int or task_id <= 0:
+    sys.exit("API вернул некорректный id задачи")
+print(task_id)
+')
+
+old_pod_uid=$(k get pod postgres-0 -o jsonpath='{.metadata.uid}')
+old_pvc_uid=$(k get pvc data-postgres-0 -o jsonpath='{.metadata.uid}')
+test -n "$old_pod_uid"
+test -n "$old_pvc_uid"
+k delete pod postgres-0
+k wait --for=create pod/postgres-0 --timeout=180s
+k wait --for=condition=Ready pod/postgres-0 --timeout=180s
+k wait --for=condition=Available deployment/tasks-api --timeout=180s
+
+new_pod_uid=$(k get pod postgres-0 -o jsonpath='{.metadata.uid}')
+new_pvc_uid=$(k get pvc data-postgres-0 -o jsonpath='{.metadata.uid}')
+stored=$(curl -fsS --retry 10 --retry-delay 2 "$api/tasks/$task_id")
+printf 'Pod: %s → %s\nPVC: %s → %s\n%s\n' \
+  "$old_pod_uid" "$new_pod_uid" "$old_pvc_uid" "$new_pvc_uid" "$stored"
+test -n "$new_pod_uid"
+test "$old_pod_uid" != "$new_pod_uid"
+test "$old_pvc_uid" = "$new_pvc_uid"
+test "$created" = "$stored"
+printf 'Запись %s сохранилась после пересоздания Pod PostgreSQL.\n' "$task_id"
+SH
+```
+
+UID Pod меняется, UID PVC остаётся прежним, а `GET /tasks/{id}` возвращает ту же запись, что и `POST /tasks`.
 
 ## Swagger UI
-Доступен после запуска по адресу http://localhost:8080/swagger/index.html
 
 ![Swagger UI](images/swagger.png)
 
-## Подключение к БД с хоста
-Параметры для клиента БД: хост `localhost`, порт — `DB_EXPOSED_PORT`, база, пользователь и пароль — из .env.
-
-![Настройки подключения к PostgreSQL](images/db-connection.png)
-
-# Лицензия
+## Лицензия
 
 [MIT](LICENSE)
